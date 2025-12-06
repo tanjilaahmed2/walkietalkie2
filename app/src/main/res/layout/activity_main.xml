@@ -1,7 +1,7 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-             android:layout_width="match_parent"
-             android:layout_height="match_parent"
-             android:keepScreenOn="true">
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:keepScreenOn="true">
 
     <TextView
         android:id="@+id/previous_state"
@@ -13,7 +13,6 @@
         android:textColor="@color/textColor" />
 
     <TextView
-        android:text="@string/status_unknown"
         android:id="@+id/current_state"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
@@ -21,7 +20,8 @@
         android:textSize="24sp"
         android:padding="10dp"
         android:textColor="@color/textColor"
-        android:background="@color/state_unknown"/>
+        android:background="@color/state_unknown"
+        android:text="@string/status_unknown" />
 
     <TextView
         android:id="@+id/name"
@@ -32,6 +32,26 @@
         android:padding="10dp"
         android:textColor="@color/textColor" />
 
+    <!-- Received image, centered horizontally above the debug log -->
+    <ImageView
+        android:id="@+id/received_image"
+        android:layout_width="200dp"
+        android:layout_height="200dp"
+        android:layout_gravity="center_horizontal|bottom"
+        android:layout_marginBottom="120dp"
+        android:scaleType="centerCrop"
+        android:contentDescription="@string/received_image_desc" />
+
+    <!-- Share button, bottom-center, above the debug log -->
+    <Button
+        android:id="@+id/share_button"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Share"
+        android:layout_gravity="center_horizontal|bottom"
+        android:layout_marginBottom="60dp" />
+
+    <!-- Debug log at the very bottom -->
     <TextView
         android:id="@+id/debug_log"
         android:layout_width="match_parent"

@@ -1,5 +1,7 @@
 package com.google.location.nearby.apps.walkietalkie;
 
+
+
 import android.Manifest;
 import android.animation.Animator;
 import android.animation.ObjectAnimator;
@@ -30,6 +32,19 @@ import com.google.android.gms.nearby.connection.Strategy;
 import java.io.IOException;
 import java.util.Random;
 
+//Tanjila - added new imports
+import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.net.Uri;
+import android.widget.Button;
+import android.widget.ImageView;
+
+import java.io.FileNotFoundException;
+import static com.google.android.gms.nearby.connection.Payload.Type.STREAM;
+import static com.google.android.gms.nearby.connection.Payload.Type.FILE;
+import java.io.IOException;
+
 /**
  * Our WalkieTalkie Activity. This Activity has 3 {@link State}s.
  *
@@ -43,7 +58,12 @@ import java.util.Random;
  * down the volume keys and speaking into the phone. Advertising and discovery have both stopped.
  */
 public class MainActivity extends ConnectionsActivity {
-  /** If true, debug logs are shown on the device. */
+ //Tanjila - add constants
+ private static final int REQUEST_CODE_PICK_IMAGE = 1001;
+
+ private ImageView mReceivedImageView;
+
+    /** If true, debug logs are shown on the device. */
   private static final boolean DEBUG = true;
 
   /**
@@ -136,6 +156,18 @@ public class MainActivity extends ConnectionsActivity {
   protected void onCreate(Bundle savedInstanceState) {
     super.onCreate(savedInstanceState);
     setContentView(R.layout.activity_main);
+    //Tanjila - add Button
+    mReceivedImageView = findViewById(R.id.received_image);
+
+    Button shareButton = findViewById(R.id.share_button);
+    shareButton.setOnClickListener(
+             new View.OnClickListener() {
+               @Override
+                  public void onClick(View v) {
+                      onShareClicked();
+                  }
+              });
+
     getSupportActionBar()
         .setBackgroundDrawable(ContextCompat.getDrawable(this, R.drawable.actionBar));
 
@@ -151,7 +183,63 @@ public class MainActivity extends ConnectionsActivity {
     ((TextView) findViewById(R.id.name)).setText(mName);
   }
 
+  //Tanjila - action when Share button is tapped. It opens a file picker to select an image but only if two devices are connected.
+  private void onShareClicked() {
+        if (getState() != State.CONNECTED) {
+            Toast.makeText(this, "You must be connected to share a photo", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("image/*");
+        intent.putExtra(Intent.EXTRA_LOCAL_ONLY, true);
+
+        startActivityForResult(intent, REQUEST_CODE_PICK_IMAGE);
+  }
+
+  //Tanjila - handles the result after selecting image
   @Override
+  protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+
+        if (requestCode == REQUEST_CODE_PICK_IMAGE && resultCode == RESULT_OK && data != null) {
+            Uri uri = data.getData();
+            if (uri != null) {
+                sendImageFile(uri);
+            }
+        }
+    }
+    //Convert that image into Nearby Payload. Sends the image to Nearby device
+    private void sendImageFile(Uri uri) {
+        try {
+            // Persist read permission (useful if you want to reuse the URI later)
+            final int takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION;
+            getContentResolver().takePersistableUriPermission(uri, takeFlags);
+        } catch (Exception e) {
+            // Not fatal if this fails; we can still try to read now.
+            logW("Failed to persist URI permission", e);
+        }
+
+        try {
+            ParcelFileDescriptor pfd = getContentResolver().openFileDescriptor(uri, "r");
+            if (pfd == null) {
+                Toast.makeText(this, "Unable to open selected image", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            // Create a Payload from the file.Sends image to all connected endpoints and displays a toast.
+            Payload filePayload = Payload.fromFile(pfd);
+            logD("Sending FILE payload id=" + filePayload.getId());
+            send(filePayload);   // Uses ConnectionsActivity.send(..) to all connected endpoints
+            Toast.makeText(this, "Photo sent!", Toast.LENGTH_SHORT).show();
+
+        } catch (FileNotFoundException e) {
+            logE("File not found for selected image", e);
+            Toast.makeText(this, "File not found", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    @Override
   public boolean dispatchKeyEvent(KeyEvent event) {
     if (mState == State.CONNECTED && mGestureDetector.onKeyEvent(event)) {
       return true;
@@ -189,7 +277,7 @@ public class MainActivity extends ConnectionsActivity {
     }
 
     // After our Activity stops, we disconnect from Nearby Connections.
-    setState(State.UNKNOWN);
+    //setState(State.UNKNOWN);
 
     if (mCurrentAnimator != null && mCurrentAnimator.isRunning()) {
       mCurrentAnimator.cancel();
@@ -438,35 +526,91 @@ public class MainActivity extends ConnectionsActivity {
   }
 
   /** {@see ConnectionsActivity#onReceive(Endpoint, Payload)} */
+  //Tanjila - update onReceive to support both audio and image file
+  //if it is a stream -> play audio
+  //if it is a file -> show image in an ImageView
   @Override
   protected void onReceive(Endpoint endpoint, Payload payload) {
-    if (payload.getType() == Payload.Type.STREAM) {
-      if (mAudioPlayer != null) {
-        mAudioPlayer.stop();
-        mAudioPlayer = null;
-      }
+      switch (payload.getType()) {
+          case STREAM:
+              if (mAudioPlayer != null) {
+                  mAudioPlayer.stop();
+                  mAudioPlayer = null;
+              }
 
-      AudioPlayer player =
-          new AudioPlayer(payload.asStream().asInputStream()) {
-            @WorkerThread
-            @Override
-            protected void onFinish() {
-              runOnUiThread(
-                  new Runnable() {
-                    @UiThread
+              AudioPlayer player =
+                      new AudioPlayer(payload.asStream().asInputStream()) {
+                          @WorkerThread
+                          @Override
+                          protected void onFinish() {
+                              runOnUiThread(
+                                      new Runnable() {
+                                          @UiThread
+                                          @Override
+                                          public void run() {
+                                              mAudioPlayer = null;
+                                          }
+                                      });
+                          }
+                      };
+              mAudioPlayer = player;
+              player.start();
+              break;
+
+          case FILE://Image
+              handleReceivedFile(payload.asFile());
+              break;
+
+          default:
+              // Ignore other payload types for now (e.g., BYTES)
+              break;
+      }
+  }
+// Tanjila - handle received file from sender
+  private void handleReceivedFile(@Nullable Payload.File file) {
+        if (file == null) {
+            logW("Received FILE payload is null");
+            return;
+        }
+
+        final ParcelFileDescriptor pfd = file.asParcelFileDescriptor();
+        if (pfd == null) {
+            logW("Received FILE has null ParcelFileDescriptor");
+            return;
+        }
+
+        // Decode bitmap off the UI thread
+        new Thread(
+                new Runnable() {
                     @Override
                     public void run() {
-                      mAudioPlayer = null;
-                    }
-                  });
-            }
-          };
-      mAudioPlayer = player;
-      player.start();
-    }
-  }
+                        Bitmap bitmap = BitmapFactory.decodeFileDescriptor(pfd.getFileDescriptor());
+                        try {
+                            pfd.close();
+                        } catch (IOException e) {
+                            logW("Error closing ParcelFileDescriptor", e);
+                        }
 
-  /** Stops all currently streaming audio tracks. */
+                        if (bitmap != null) {
+                            runOnUiThread(
+                                    new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            mReceivedImageView.setImageBitmap(bitmap);
+                                            Toast.makeText(MainActivity.this, "Photo received!", Toast.LENGTH_SHORT)
+                                                    .show();
+                                        }
+                                    });
+                        } else {
+                            logW("Failed to decode received image file");
+                        }
+                    }
+                })
+                .start();
+    }
+
+
+    /** Stops all currently streaming audio tracks. */
   private void stopPlaying() {
     logV("stopPlaying()");
     if (mAudioPlayer != null) {
